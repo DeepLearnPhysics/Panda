@@ -76,22 +76,20 @@ See **[DATASET.md](DATASET.md)** for full documentation on dataset structure, la
 - **Model.** Load the pre-trained model by running the following command:
   ```python
   # load the pre-trained model from Huggingface
-  # supported models: "panda"
+  # supported models: "base", "particle", "interaction", "semantic"
   # ckpt is cached in ~/.cache/panda/ckpt, and the path can be customized by setting 'download_root'
-  model = panda.load("panda").cuda()
+  model = panda.load("base").cuda()
   
   # load the pre-trained model from local path
   # assume the ckpt file is stored in the 'ckpt' folder
-  model = panda.load("ckpt/panda.pth").cuda()
+  model = panda.load("ckpt/panda_base.pth").cuda()
   
   # the ckpt file stores the config and state_dict of pretrained model
   ```
   If *FlashAttention* is not available, load the pre-trained model with the following code:
   ```python
-  custom_config = dict(
-      enable_flash=False
-  )
-  model = panda.load("panda", custom_config=custom_config).cuda()
+  custom_config = dict(enable_flash=False)
+  model = panda.load("base", custom_config=custom_config).cuda()
   ```
 - **Inference.** Run the inference by running the following command:
   ```python
