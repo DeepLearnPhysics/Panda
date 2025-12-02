@@ -4,7 +4,7 @@
 </div>
 
 <div align="center">
-<a href="#">[Paper]</a>
+<a href="https://arxiv.org/pdf/2512.01324">[Paper]</a>
 <a href="https://huggingface.co/datasets/DeepLearnPhysics/PILArNet-M">[Dataset]</a>
 <a href="https://youngsm.com/panda">[Project Site]</a>
 <a href="./notebooks">[Tutorial]</a>
@@ -109,11 +109,14 @@ See **[DATASET.md](DATASET.md)** for full documentation on dataset structure, la
 If you find this work useful, please consider citing the following paper:
 
 ```bibtex
-@inproceedings{young2025panda,
-    title     = {Panda: Self-distillation of Reusable Sensor-level 
-                 Representations for High Energy Physics},
-    author    = {Young, Samuel and Terao, Kazuhiro},
-    year      = {2025}
+@misc{young2025pandaselfdistillationreusablesensorlevel,
+      title={Panda: Self-distillation of Reusable Sensor-level Representations for High Energy Physics}, 
+      author={Samuel Young and Kazuhiro Terao},
+      year={2025},
+      eprint={2512.01324},
+      archivePrefix={arXiv},
+      primaryClass={hep-ex},
+      url={https://arxiv.org/abs/2512.01324}, 
 }
 ```
 
