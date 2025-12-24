@@ -12,7 +12,7 @@
 </div>
 
 
-This repo provides pre-trained models, inference code, and visualization demos for LArTPC point cloud analysis. The training and evaluation code can be found in the [LAr.FM](https://github.com/DeepLearnPhysics/LAr.FM) repository.
+This repo provides pre-trained models, inference code, and visualization demos for LArTPC point cloud analysis. The training and evaluation code can be found in the [`pimm`](https://github.com/DeepLearnPhysics/pimm) repository.
 
 <div align='left'>
 <img src="https://youngsm.com/assets/img/panda/teaser_full.png" alt="teaser" width="800" />
