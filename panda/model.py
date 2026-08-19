@@ -1,15 +1,16 @@
+import importlib
 import os
+import sys
 
 import torch
 import torch.nn as nn
 from huggingface_hub import hf_hub_download
-from packaging import version
 
 from .logging import get_logger
-from .model_base import PointTransformerV3
+from .model_base import PointTransformerV3, flash_attn as _flash_attn
 from .model_panoptic import Detector
 from .model_segment import Segmenter
-from .utils import filter_kwargs
+from .utils import filter_kwargs, filter_state_dict, set_flash_attention
 
 logger = get_logger(__name__)
 
@@ -17,11 +18,12 @@ MODELS = ["base", "particle", "interaction", "semantic"]
 
 def load(
     name: str = "pretrain",
-    download_root: str = None,
+    download_root: str | None = None,
     repo_id: str = "deeplearnphysics/panda",
-    custom_config: dict = None,
-    custom_cls: nn.Module = None,
+    custom_config: dict | None = None,
+    custom_cls: nn.Module | None = None,
 ):
+    """Load a model checkpoint from HuggingFace or a local path."""
     if name in MODELS:
         logger.info(f"Loading checkpoint from HuggingFace: {name} ...")
         ckpt_path = hf_hub_download(
@@ -37,14 +39,9 @@ def load(
     else:
         raise RuntimeError(f"Model {name} not found; available models = {MODELS}")
 
-    if version.parse(torch.__version__) >= version.parse("2.4"):
-        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    else:
-        ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
-    if custom_config is not None:
-        for key, value in custom_config.items():
-            ckpt["config"][key] = value
+    config = ckpt.get("config", None) # if none will be loaded from local code
 
     if custom_cls is not None:
         model_cls = custom_cls
@@ -54,8 +51,38 @@ def load(
         model_cls = Detector
     elif name == "semantic":
         model_cls = Segmenter
+    else: # load directly from exp pimm directory
+        cfg_dir = os.path.dirname(os.path.dirname(ckpt_path))
+        assert os.path.exists(cfg_dir), "exp path containing codebase must exist if providing raw weights"
+        code_path = f"{cfg_dir}/code"
+        if str(code_path) not in sys.path:
+            sys.path.insert(0, str(code_path))
+        if str(cfg_dir) not in sys.path:
+            sys.path.insert(0, str(cfg_dir))
+        from pimm.models.builder import MODELS as PIMM_MODELS
+        config = importlib.import_module("config").model
+        if "backbone" in config:
+            config = config["backbone"]
+        model_cls = PIMM_MODELS.get(config['type'])
+        ckpt["state_dict"] = filter_state_dict(ckpt["state_dict"])
 
-    config, _ = filter_kwargs(model_cls, ckpt["config"])
+    if custom_config is not None:
+        for key, value in custom_config.items():
+            config[key] = value
+        # Segmenter and Detector keep PointTransformerV3's configuration in a
+        # nested ``backbone`` mapping.  Preserve the flat override supported by
+        # base checkpoints while applying it to wrapped pretrained models too.
+        if "enable_flash" in custom_config:
+            set_flash_attention(config, custom_config["enable_flash"])
+
+    # disable fa if not installed/turned off in config
+    if _flash_attn is None and set_flash_attention(config, False):
+        logger.warning(
+            "FlashAttention is not installed; using native PyTorch attention. "
+            "Install panda[flash] to enable FlashAttention if you have an Ampere+ GPU."
+        )
+
+    config, _ = filter_kwargs(model_cls, config)
     model = model_cls(**config)
 
     missing, unexpected = model.load_state_dict(ckpt["state_dict"], strict=False)

@@ -20,27 +20,64 @@ Please cite our work if the code is helpful to you.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from spconv import constants
+
 constants.SPCONV_ALLOW_TF32 = True
 
 import os
-from packaging import version
-from huggingface_hub import hf_hub_download, PyTorchModelHubMixin
-from addict import Dict
+
+import spconv.pytorch as spconv
 import torch
 import torch.nn as nn
-import spconv.pytorch as spconv
-import torch_scatter
-from timm.models.layers import DropPath
-
+from addict import Dict
+from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 
 try:
     import flash_attn
 except ImportError:
     flash_attn = None
 
+from .module import PointModule, PointSequential
 from .structure import Point
-from .module import PointSequential, PointModule
 from .utils import offset2bincount
+
+
+def drop_path(
+    x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True
+):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+
+    """
+    if drop_prob == 0.0 or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (
+        x.ndim - 1
+    )  # work with diff dim tensors, not just 2D ConvNets
+    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+    if keep_prob > 0.0 and scale_by_keep:
+        random_tensor.div_(keep_prob)
+    return x * random_tensor
+
+
+class DropPath(nn.Module):
+    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks)."""
+
+    def __init__(self, drop_prob: float = 0.0, scale_by_keep: bool = True):
+        super().__init__()
+        self.drop_prob = drop_prob
+        self.scale_by_keep = scale_by_keep
+
+    def forward(self, x):
+        return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
+
+    def extra_repr(self):
+        return f"drop_prob={round(self.drop_prob, 3):0.3f}"
 
 
 class LayerScale(nn.Module):
@@ -478,25 +515,25 @@ class GridPooling(PointModule):
             dim=0,
         )
         grid_coord = grid_coord & ((1 << 48) - 1)
-        # indices of point sorted by cluster, for torch_scatter.segment_csr
+        # Sort points by cluster so each reduction segment is contiguous.
         _, indices = torch.sort(cluster)
-        # index pointer for sorted point, for torch_scatter.segment_csr
+        # Offsets delimit the sorted segments for torch.segment_reduce.
         idx_ptr = torch.cat([counts.new_zeros(1), torch.cumsum(counts, dim=0)])
         # head_indices of each cluster, for reduce attr e.g. code, batch
         head_indices = indices[idx_ptr[:-1]]
         point_dict = Dict(
-            feat=torch_scatter.segment_csr(
-                self.proj(point.feat)[indices], idx_ptr, reduce=self.reduce
+            feat=torch.segment_reduce(
+                self.proj(point.feat)[indices], self.reduce, offsets=idx_ptr
             ),
-            coord=torch_scatter.segment_csr(
-                point.coord[indices], idx_ptr, reduce="mean"
+            coord=torch.segment_reduce(
+                point.coord[indices], "mean", offsets=idx_ptr
             ),
             grid_coord=grid_coord,
             batch=point.batch[head_indices],
         )
         if "origin_coord" in point.keys():
-            point_dict["origin_coord"] = torch_scatter.segment_csr(
-                point.origin_coord[indices], idx_ptr, reduce="mean"
+            point_dict["origin_coord"] = torch.segment_reduce(
+                point.origin_coord[indices], "mean", offsets=idx_ptr
             )
         if "condition" in point.keys():
             point_dict["condition"] = point.condition
@@ -733,7 +770,7 @@ class PointTransformerV3(PointModule, PyTorchModelHubMixin):
                         enable_flash=enable_flash,
                         upcast_attention=upcast_attention,
                         upcast_softmax=upcast_softmax,
-                        enable_cpe=False if cpe_first_layer_only and i != 0 else True,
+                        enable_cpe=not (cpe_first_layer_only and i != 0),
                         shared_cpe_conv=self.shared_cpe_convs[f"enc_stage{s}"]
                         if cpe_shared_weight
                         else None,
@@ -809,11 +846,7 @@ class PointTransformerV3(PointModule, PyTorchModelHubMixin):
 
     @staticmethod
     def _init_weights(module):
-        if isinstance(module, nn.Linear):
-            torch.nn.init.trunc_normal_(module.weight, std=0.02)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
-        elif isinstance(module, spconv.SubMConv3d):
+        if isinstance(module, (nn.Linear, spconv.SubMConv3d)):
             torch.nn.init.trunc_normal_(module.weight, std=0.02)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
@@ -829,11 +862,10 @@ class PointTransformerV3(PointModule, PyTorchModelHubMixin):
         if not self.enc_mode:
             point = self.dec(point)
         elif upcast:
-            while "pooling_parent" in point.keys():
-                assert "pooling_inverse" in point.keys()
+            while "pooling_parent" in point:
+                assert "pooling_inverse" in point
                 parent = point.pop("pooling_parent")
                 inverse = point.pop("pooling_inverse")
                 parent.feat = torch.cat([parent.feat, point.feat[inverse]], dim=-1)
                 point = parent
         return point
-

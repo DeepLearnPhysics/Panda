@@ -1,32 +1,27 @@
 name: panda
 channels:
-  - pytorch
-  - nvidia/label/cuda-12.4.1
-  - nvidia
   - conda-forge
-  - defaults
 dependencies:
   - python=3.10
   - pip
-  - cuda
-  - conda-forge::cudnn
-  - gcc=13.2
-  - gxx=13.2
-  - pytorch=2.5.0
-  - torchvision=0.20.0
-  - torchaudio=2.5.0
-  - pytorch-cuda=12.4
-  - numpy<=1.26.4  # for random seed
-  - ninja
-  - scipy
-  - addict
-  - timm
-  - psutil
-  - huggingface_hub
-  - matplotlib  # for demo visualization
-  - h5py
-  - plotly # for demo visualization
   - pip:
-    - torch-scatter --find-links https://data.pyg.org/whl/torch-2.5.0+cu124.html
-    - git+https://github.com/Dao-AILab/flash-attention.git
-    - spconv-cu124
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - torch==2.10.0+cu126
+      - torchvision==0.25.0
+      - torchaudio==2.10.0+cu126
+      - flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.0/flash_attn-2.8.3%2Bcu126torch2.10-cp310-cp310-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
+      - spconv-cu126
+      - numpy<=1.26.4
+      - scipy
+      - addict
+      - huggingface-hub
+      - matplotlib
+      - h5py
+      - plotly
+      - scikit-learn
+      - tqdm
+      - jupyter
+      - ipykernel
+      - .
+variables:
+  PYTHONNOUSERSITE: "1"

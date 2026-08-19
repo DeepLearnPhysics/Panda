@@ -20,18 +20,21 @@ Please cite our work if the code is helpful to you.
 # limitations under the License.
 
 
+import inspect
 import os
 import random
-import inspect
-from typing import Callable, Dict, Any, Tuple, List
+import re
+from collections.abc import Mapping, Sequence
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Tuple
+
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-from datetime import datetime
-from collections.abc import Mapping, Sequence
 from torch.utils.data.dataloader import default_collate
 
 from .logging import get_logger
+
 logger = get_logger(__name__)
 
 
@@ -129,7 +132,27 @@ def filter_kwargs(
     
     return filtered, ignored
 
-
+def filter_state_dict(state_dict, look_for="backbone"):
+    # find where the backbone weights are located and strip the state_dict of everything
+    # except them!
+    backbone_module = sorted(
+        list(
+            set(
+                [
+                    re.sub(rf"\.{look_for}\..+", "", k)
+                    for k in state_dict.keys()
+                    if look_for in k
+                ]
+            )
+        )
+    )[0]  # <-- there can be more than one backbone module, so we take the first one.
+    # strip state_dict of everything except the backbone weights
+    state_dict = {
+        k.replace(f"{backbone_module}.{look_for}.", ""): v
+        for k, v in state_dict.items()
+        if k.startswith(f"{backbone_module}.{look_for}")
+    }
+    return state_dict
 
 def collate_fn(batch, mix_prob=0):
     """
@@ -166,3 +189,17 @@ def collate_fn(batch, mix_prob=0):
         return batch
     else:
         return default_collate(batch)
+
+def set_flash_attention(config, enabled: bool) -> bool:
+    """Set existing FlashAttention options recursively."""
+    changed = False
+    if isinstance(config, dict):
+        if "enable_flash" in config and config["enable_flash"] != enabled:
+            config["enable_flash"] = enabled
+            changed = True
+        for value in config.values():
+            changed = set_flash_attention(value, enabled) or changed
+    elif isinstance(config, (list, tuple)):
+        for value in config:
+            changed = set_flash_attention(value, enabled) or changed
+    return changed

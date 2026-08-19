@@ -12,6 +12,7 @@ ckpt
 outputs/
 .vscode
 .idea
+.venv
 */.DS_Store
 **/*.out
 Dockerfile

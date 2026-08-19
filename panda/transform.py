@@ -7,20 +7,21 @@ Please cite our work if the code is helpful to you.
 
 from __future__ import annotations
 
-import random
-import numbers
-import scipy
-import scipy.ndimage
-import scipy.interpolate
-import scipy.stats
-from scipy.spatial import cKDTree
-import numpy as np
-import torch
 import copy
-from collections.abc import Sequence, Mapping
+import numbers
+import random
+from collections.abc import Mapping, Sequence
+from typing import Optional
+
+import numpy as np
+import scipy
+import scipy.interpolate
+import scipy.ndimage
+import scipy.stats
+import torch
+from scipy.spatial import cKDTree
 
 from .registry import Registry
-from typing import Optional
 
 TRANSFORMS = Registry("transforms")
 
@@ -354,6 +355,20 @@ class PointClip(object):
                 a_min=self.point_cloud_range[:3],
                 a_max=self.point_cloud_range[3:],
             )
+        return data_dict
+
+@TRANSFORMS.register_module()
+class MultiplicationTransform(object):
+    def __init__(self, factor=100, keys=("energy",)):
+        self.factor = factor
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        self.keys = keys
+
+    def __call__(self, data_dict):
+        for k in self.keys:
+            if k in data_dict.keys():
+                data_dict[k] *= self.factor
         return data_dict
 
 

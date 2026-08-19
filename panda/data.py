@@ -1,22 +1,21 @@
-import os
-import numpy as np
-from .logging import get_logger
-from .hf import PILArNetHFInterface
-logger = get_logger(__name__)
-
-
 """
 PILArNet Dataset
 
 This module handles the PILArNet dataset for particle physics point cloud segmentation.
 """
-
 import glob
-import h5py
+import os
 from copy import deepcopy
+
+import h5py
+import numpy as np
 from torch.utils.data import Dataset
 
-from .transform import Compose, TRANSFORMS
+from .hf import PILArNetHFInterface
+from .logging import get_logger
+from .transform import TRANSFORMS, Compose
+
+logger = get_logger(__name__)
 
 class PILArNetH5Dataset(Dataset):
     """
@@ -51,7 +50,8 @@ class PILArNetH5Dataset(Dataset):
         test_cfg=None,
         loop=1,
         ignore_index=-1,
-        energy_threshold=0.0,
+        energy_threshold=0.13,
+        energy_factor=1.0,
         min_points=1024,
         max_len=-1,
         remove_low_energy_scatters=False,
@@ -67,7 +67,7 @@ class PILArNetH5Dataset(Dataset):
     ):
         super().__init__()
         self.split = split
-        self.transform = Compose(transform if transform else default_transform(copy=copy))
+        self.transform = Compose(transform if transform is not None else default_transform(copy=copy))
         self.test_mode = test_mode
         self.test_cfg = test_cfg if test_mode else None
         self.loop = loop if not test_mode else 1
@@ -102,6 +102,7 @@ class PILArNetH5Dataset(Dataset):
 
         # PILArNet specific parameters
         self.energy_threshold = energy_threshold
+        self.energy_factor = energy_factor
         self.min_points = min_points
         self.remove_low_energy_scatters = remove_low_energy_scatters
         self.max_len = max_len
@@ -245,6 +246,8 @@ class PILArNetH5Dataset(Dataset):
         data_vtx_x = np.repeat(vtx_x, cluster_size)
         data_vtx_y = np.repeat(vtx_y, cluster_size)
         data_vtx_z = np.repeat(vtx_z, cluster_size)
+
+        data[:, 3] *= self.energy_factor
 
         # Apply energy threshold if needed
         if self.energy_threshold > 0:
